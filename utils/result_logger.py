@@ -89,26 +89,35 @@ Performance:
     
     def log_validation_results(self, validation_results: List[Dict]):
         """记录验证结果"""
+        if not validation_results:
+            self.log_message("验证结果为空，无法记录统计信息")
+            return
+            
         fitnesses = [r['best_fitness'] for r in validation_results]
         
         message = f"""
-Validation Results
-==================
-Best Parameters Validation (5 independent runs):
-"""
+    Validation Results
+    ==================
+    Best Parameters Validation ({len(validation_results)} independent runs):
+    """
         
         for i, result in enumerate(validation_results):
             message += f"Run {i+1}: Fitness = {result['best_fitness']:.8f}\n"
         
-        message += f"""
-Statistical Summary:
-- Average Fitness: {np.mean(fitnesses):.8f}
-- Best Fitness: {np.min(fitnesses):.8f}
-- Worst Fitness: {np.max(fitnesses):.8f}
-- Standard Deviation: {np.std(fitnesses):.8f}
-- Success Rate: {np.mean([f <= 1e-3 for f in fitnesses]):.2%}
+        # 添加空数组检查
+        if len(fitnesses) > 0:
+            message += f"""
+    Statistical Summary:
+    - Average Fitness: {np.mean(fitnesses):.8f}
+    - Best Fitness: {np.min(fitnesses):.8f}
+    - Worst Fitness: {np.max(fitnesses):.8f}
+    - Standard Deviation: {np.std(fitnesses):.8f}
+    - Success Rate: {np.mean([f <= 1e-3 for f in fitnesses]):.2%}
 
-"""
+    """
+        else:
+            message += "\nNo valid fitness values to calculate statistics.\n"
+        
         self.log_message(message, print_to_console=True)
     
     def log_parameter_analysis(self, results_df: pd.DataFrame):

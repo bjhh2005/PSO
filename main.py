@@ -10,6 +10,8 @@ from utils.result_logger import ResultLogger
 from utils.visualization import (plot_convergence, plot_parameter_sensitivity, 
                                plot_comparison, plot_optimization_history)
 from typing import List, Dict
+from algorithms.pso import ParticleSwarmOptimization
+from utils.objective_functions import ackley_function
 
 def ensure_directories():
     """确保结果目录存在"""
@@ -30,30 +32,30 @@ def run_large_scale_parameter_tuning():
     try:
         logger.log_message("=== 大规模PSO参数调优实验开始 ===")
         
-        # 配置大规模实验 - 使用更好的参数
+        # 使用更优化的参数配置
         config = ExperimentConfig(
             n_dims=20,
-            n_particles=50,  # 增加粒子数
-            max_iter=1000,   # 增加迭代次数
+            n_particles=80,  # 进一步增加粒子数
+            max_iter=1500,   # 进一步增加迭代次数
             n_runs=3,
             param_search_config={
                 'w': {
                     'type': 'linear',
-                    'values': [0.4, 0.5, 0.6, 0.7, 0.8],  # 缩小范围，集中在常用值
+                    'values': [0.5, 0.6, 0.7, 0.8],  # 集中在最佳范围
                     'best_value': 0.7
                 },
                 'c1': {
                     'type': 'linear',
-                    'values': [1.5, 2.0, 2.5],  # 缩小范围
+                    'values': [1.8, 2.0, 2.2],  # 更精细的范围
                     'best_value': 2.0
                 },
                 'c2': {
                     'type': 'linear', 
-                    'values': [1.5, 2.0, 2.5],  # 缩小范围
+                    'values': [1.8, 2.0, 2.2],  # 更精细的范围
                     'best_value': 2.0
                 },
-                'search_strategy': 'grid',  # 使用网格搜索确保覆盖
-                'max_combinations': 45,     # 3×3×5=45种组合
+                'search_strategy': 'grid',
+                'max_combinations': 36,     # 4×3×3=36种组合
                 'performance_metric': 'mean_fitness'
             }
         )
@@ -94,7 +96,7 @@ def validate_best_parameters(best_params: dict, logger: ResultLogger):
     """验证最佳参数"""
     logger.log_message("开始验证最佳参数...")
     
-    # 使用最佳参数进行完整运行，使用改进的PSO
+    # 使用最佳参数进行完整运行
     config = ExperimentConfig(
         n_particles=100,    # 增加粒子数
         max_iter=2000,      # 增加迭代次数
@@ -109,7 +111,6 @@ def validate_best_parameters(best_params: dict, logger: ResultLogger):
         'max_iter': config.max_iter
     }
     
-    # 使用改进的PSO
     validation_results = []
     
     for run in range(config.n_runs):
@@ -135,20 +136,52 @@ def validate_best_parameters(best_params: dict, logger: ResultLogger):
                 'parameters': params,
                 'best_fitness': result['best_fitness'],
                 'best_position': result['best_position'],
-                'success': result['best_fitness'] <= 1e-3,
+                'success': result['best_fitness'] <= ACKLEYCONFIG.SUCCESS_THRESHOLD,
                 'history': result['history'],
                 'convergence_iteration': len(result['history']['global_best_fitness']) - 1,
                 'seed': run
             }
             
             validation_results.append(validation_result)
+            logger.log_message(f"验证运行 {run+1}: 适应度 = {result['best_fitness']:.8f}")
             
         except Exception as e:
-            print(f"验证运行 {run} 失败: {e}")
+            logger.log_message(f"验证运行 {run+1} 失败: {str(e)}")
     
-    logger.log_validation_results(validation_results)
+    # 检查是否有成功的验证运行
+    if not validation_results:
+        logger.log_message("所有验证运行均失败，跳过验证结果记录")
+        return validation_results
+    
+    # 记录验证结果
+    fitnesses = [r['best_fitness'] for r in validation_results]
+    
+    message = f"""
+Validation Results
+==================
+Best Parameters Validation ({len(validation_results)} independent runs):
+"""
+    
+    for i, result in enumerate(validation_results):
+        message += f"Run {i+1}: Fitness = {result['best_fitness']:.8f}\n"
+    
+    if fitnesses:  # 确保列表不为空
+        message += f"""
+Statistical Summary:
+- Average Fitness: {np.mean(fitnesses):.8f}
+- Best Fitness: {np.min(fitnesses):.8f}
+- Worst Fitness: {np.max(fitnesses):.8f}
+- Standard Deviation: {np.std(fitnesses):.8f}
+- Success Rate: {np.mean([f <= ACKLEYCONFIG.SUCCESS_THRESHOLD for f in fitnesses]):.2%}
+
+"""
+    else:
+        message += "\nNo valid results to calculate statistics.\n"
+    
+    logger.log_message(message, print_to_console=True)
     
     return validation_results
+
 def generate_comprehensive_visualizations(results_df: pd.DataFrame, best_params: Dict, 
                                         validation_results: List[Dict], logger: ResultLogger):
     """生成综合可视化图表"""
