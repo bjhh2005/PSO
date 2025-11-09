@@ -108,3 +108,26 @@ def plot_comparison(comparison_results: Dict, save_path: str = None):
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+def plot_optimization_history(optimization_history: List, save_path: str = None):
+    """绘制优化历史"""
+    plt.figure(figsize=(12, 8))
+    
+    generations = range(len(optimization_history))
+    best_fitness = [gen['best_fitness'] for gen in optimization_history]
+    avg_fitness = [gen['avg_fitness'] for gen in optimization_history]
+    worst_fitness = [gen['worst_fitness'] for gen in optimization_history]
+    
+    plt.semilogy(generations, best_fitness, 'g-', linewidth=2, label='Best')
+    plt.semilogy(generations, avg_fitness, 'b-', linewidth=2, label='Average')
+    plt.semilogy(generations, worst_fitness, 'r-', linewidth=2, label='Worst')
+    
+    plt.xlabel('Generation')
+    plt.ylabel('Fitness (log scale)')
+    plt.title('Optimization History')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()

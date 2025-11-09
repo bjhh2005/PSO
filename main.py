@@ -1,12 +1,15 @@
 import numpy as np
 import pandas as pd
 import os
+import json
 from datetime import datetime
-from algorithms.pso import ParticleSwarmOptimization
-from utils.objective_functions import ackley_function
+from config import ExperimentConfig, ACKLEYCONFIG
+from utils.parameter_generator import ParameterGenerator
+from utils.experiment_runner import ExperimentRunner
+from utils.result_logger import ResultLogger
 from utils.visualization import (plot_convergence, plot_parameter_sensitivity, 
-                               plot_comparison)
-from config import PSOCONFIG, ACKLEYCONFIG
+                               plot_comparison, plot_optimization_history)
+from typing import List, Dict
 
 def ensure_directories():
     """确保结果目录存在"""
@@ -19,192 +22,218 @@ def ensure_directories():
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
 
-def single_run_experiment():
-    """单次运行实验"""
-    print("=== 单次PSO运行实验 ===")
+def run_large_scale_parameter_tuning():
+    """大规模参数调优"""
+    # 初始化结果记录器
+    logger = ResultLogger("large_scale_pso_tuning")
     
-    pso = ParticleSwarmOptimization(
-        objective_func=ackley_function,
-        n_dims=ACKLEYCONFIG.DIMENSION,
-        n_particles=PSOCONFIG.DEFAULT_PARAMS['n_particles'],
-        max_iter=PSOCONFIG.DEFAULT_PARAMS['max_iter'],
-        bounds=ACKLEYCONFIG.BOUNDS,
-        w=PSOCONFIG.DEFAULT_PARAMS['w'],
-        c1=PSOCONFIG.DEFAULT_PARAMS['c1'],
-        c2=PSOCONFIG.DEFAULT_PARAMS['c2'],
-        seed=42
-    )
-    
-    result = pso.optimize()
-    
-    # 保存结果
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # 绘制收敛曲线
-    plot_convergence(
-        result['history'],
-        f'results/convergence_plots/convergence_{timestamp}.png'
-    )
-    
-    # 保存最优解
-    with open(f'results/best_solutions/best_solution_{timestamp}.txt', 'w') as f:
-        f.write(f"Best Fitness: {result['best_fitness']}\n")
-        f.write(f"Best Position: {result['best_position']}\n")
-        f.write(f"Parameters: {result['parameters']}\n")
-    
-    print(f"最优适应度: {result['best_fitness']}")
-    print(f"理论最优适应度: {ACKLEYCONFIG.GLOBAL_OPTIMUM}")
-    
-    return result
+    try:
+        logger.log_message("=== 大规模PSO参数调优实验开始 ===")
+        
+        # 配置大规模实验
+        config = ExperimentConfig(
+            n_dims=20,
+            n_particles=40,
+            max_iter=800,
+            n_runs=3,  # 每个组合运行3次
+            param_search_config={
+                'w': {
+                    'type': 'linear',
+                    'values': [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3],
+                    'best_value': 0.7
+                },
+                'c1': {
+                    'type': 'linear',
+                    'values': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+                    'best_value': 2.0
+                },
+                'c2': {
+                    'type': 'linear', 
+                    'values': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+                    'best_value': 2.0
+                },
+                'search_strategy': 'random',
+                'max_combinations': 100,  # 测试100种组合
+                'performance_metric': 'mean_fitness'
+            }
+        )
+        
+        # 生成参数组合
+        param_combinations = ParameterGenerator.generate_parameters(config)
+        logger.log_parameter_sweep_start(len(param_combinations), config.n_runs)
+        
+        # 运行实验
+        runner = ExperimentRunner(config)
+        results_df = runner.run_parameter_sweep(param_combinations, logger)
+        
+        # 找到最佳参数
+        best_params = runner.find_best_parameters(results_df)
+        logger.log_best_parameters(best_params)
+        
+        # 参数分析
+        logger.log_parameter_analysis(results_df)
+        
+        # 验证最佳参数
+        validation_results = validate_best_parameters(best_params, logger)
+        
+        # 保存详细结果
+        logger.save_detailed_results(results_df, best_params, validation_results)
+        
+        # 生成可视化图表
+        generate_comprehensive_visualizations(results_df, best_params, validation_results, logger)
+        
+        logger.log_message("=== 实验完成 ===")
+        logger.log_message(f"结果保存目录: {logger.log_dir}")
+        
+        return best_params, results_df, validation_results
+        
+    finally:
+        logger.close()
 
-def parameter_sensitivity_analysis():
-    """参数敏感性分析"""
-    print("\n=== 参数敏感性分析 ===")
+def validate_best_parameters(best_params: dict, logger: ResultLogger):
+    """验证最佳参数"""
+    logger.log_message("开始验证最佳参数...")
     
-    results = []
-    
-    # 测试不同惯性权重
-    print("测试惯性权重...")
-    for w in PSOCONFIG.PARAM_RANGES['w']:
-        for run in range(3):  # 每个参数运行3次取平均
-            pso = ParticleSwarmOptimization(
-                objective_func=ackley_function,
-                n_dims=ACKLEYCONFIG.DIMENSION,
-                n_particles=30,  # 减少粒子数以加快测试
-                max_iter=500,    # 减少迭代次数
-                bounds=ACKLEYCONFIG.BOUNDS,
-                w=w,
-                c1=PSOCONFIG.DEFAULT_PARAMS['c1'],
-                c2=PSOCONFIG.DEFAULT_PARAMS['c2'],
-                seed=run
-            )
-            result = pso.optimize()
-            results.append({
-                'w': w, 'c1': PSOCONFIG.DEFAULT_PARAMS['c1'], 
-                'c2': PSOCONFIG.DEFAULT_PARAMS['c2'],
-                'best_fitness': result['best_fitness'],
-                'run': run
-            })
-    
-    # 测试不同学习因子
-    print("测试学习因子c1...")
-    for c1 in PSOCONFIG.PARAM_RANGES['c1']:
-        for run in range(3):
-            pso = ParticleSwarmOptimization(
-                objective_func=ackley_function,
-                n_dims=ACKLEYCONFIG.DIMENSION,
-                n_particles=30,
-                max_iter=500,
-                bounds=ACKLEYCONFIG.BOUNDS,
-                w=PSOCONFIG.DEFAULT_PARAMS['w'],
-                c1=c1,
-                c2=PSOCONFIG.DEFAULT_PARAMS['c2'],
-                seed=run
-            )
-            result = pso.optimize()
-            results.append({
-                'w': PSOCONFIG.DEFAULT_PARAMS['w'], 'c1': c1, 
-                'c2': PSOCONFIG.DEFAULT_PARAMS['c2'],
-                'best_fitness': result['best_fitness'],
-                'run': run
-            })
-    
-    print("测试学习因子c2...")
-    for c2 in PSOCONFIG.PARAM_RANGES['c2']:
-        for run in range(3):
-            pso = ParticleSwarmOptimization(
-                objective_func=ackley_function,
-                n_dims=ACKLEYCONFIG.DIMENSION,
-                n_particles=30,
-                max_iter=500,
-                bounds=ACKLEYCONFIG.BOUNDS,
-                w=PSOCONFIG.DEFAULT_PARAMS['w'],
-                c1=PSOCONFIG.DEFAULT_PARAMS['c1'],
-                c2=c2,
-                seed=run
-            )
-            result = pso.optimize()
-            results.append({
-                'w': PSOCONFIG.DEFAULT_PARAMS['w'], 
-                'c1': PSOCONFIG.DEFAULT_PARAMS['c1'], 'c2': c2,
-                'best_fitness': result['best_fitness'],
-                'run': run
-            })
-    
-    # 转换为DataFrame并保存
-    df_results = pd.DataFrame(results)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    df_results.to_csv(f'results/parameter_analysis/sensitivity_{timestamp}.csv', index=False)
-    
-    # 绘制参数敏感性图
-    plot_parameter_sensitivity(
-        df_results,
-        f'results/parameter_analysis/sensitivity_analysis_{timestamp}.png'
+    # 使用最佳参数进行完整运行
+    config = ExperimentConfig(
+        n_particles=50,
+        max_iter=1000,
+        n_runs=5
     )
     
-    return df_results
-
-def comparison_experiment():
-    """不同参数设置的比较实验"""
-    print("\n=== 参数设置比较实验 ===")
-    
-    # 定义不同的参数组合
-    param_combinations = {
-        'Default (w=0.7, c1=2.0, c2=2.0)': 
-            {'w': 0.7, 'c1': 2.0, 'c2': 2.0},
-        'High Inertia (w=1.2, c1=2.0, c2=2.0)': 
-            {'w': 1.2, 'c1': 2.0, 'c2': 2.0},
-        'Low Inertia (w=0.4, c1=2.0, c2=2.0)': 
-            {'w': 0.4, 'c1': 2.0, 'c2': 2.0},
-        'Cognitive Focus (w=0.7, c1=3.0, c2=1.0)': 
-            {'w': 0.7, 'c1': 3.0, 'c2': 1.0},
-        'Social Focus (w=0.7, c1=1.0, c2=3.0)': 
-            {'w': 0.7, 'c1': 1.0, 'c2': 3.0},
+    params = {
+        'w': best_params['parameters']['w'],
+        'c1': best_params['parameters']['c1'],
+        'c2': best_params['parameters']['c2'],
+        'n_particles': config.n_particles,
+        'max_iter': config.max_iter
     }
     
-    comparison_results = {}
+    runner = ExperimentRunner(config)
+    validation_results = []
     
-    for label, params in param_combinations.items():
-        print(f"运行: {label}")
-        pso = ParticleSwarmOptimization(
-            objective_func=ackley_function,
-            n_dims=ACKLEYCONFIG.DIMENSION,
-            n_particles=PSOCONFIG.DEFAULT_PARAMS['n_particles'],
-            max_iter=PSOCONFIG.DEFAULT_PARAMS['max_iter'],
-            bounds=ACKLEYCONFIG.BOUNDS,
-            w=params['w'],
-            c1=params['c1'],
-            c2=params['c2'],
-            seed=42
-        )
-        result = pso.optimize()
-        comparison_results[label] = result['history']
-        
-        print(f"  {label}: {result['best_fitness']:.6f}")
+    for run in range(config.n_runs):
+        result = runner.run_single_experiment(params, run_id=run, seed=run)
+        if result:
+            validation_results.append(result)
     
-    # 绘制比较图
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_comparison(
-        comparison_results,
-        f'results/convergence_plots/comparison_{timestamp}.png'
+    logger.log_validation_results(validation_results)
+    
+    return validation_results
+
+def generate_comprehensive_visualizations(results_df: pd.DataFrame, best_params: Dict, 
+                                        validation_results: List[Dict], logger: ResultLogger):
+    """生成综合可视化图表"""
+    logger.log_message("生成可视化图表...")
+    
+    # 参数敏感性分析图
+    plot_parameter_sensitivity(
+        results_df,
+        f'{logger.log_dir}/parameter_sensitivity_analysis.png'
     )
     
-    return comparison_results
+    # 最佳验证运行的收敛曲线
+    best_validation_run = min(validation_results, key=lambda x: x['best_fitness'])
+    plot_convergence(
+        best_validation_run['history'],
+        f'{logger.log_dir}/best_validation_convergence.png'
+    )
+    
+    # 参数组合性能热力图
+    plot_parameter_combinations_heatmap(results_df, f'{logger.log_dir}/parameter_combinations_heatmap.png')
+    
+    logger.log_message("可视化图表生成完成")
+
+def plot_parameter_combinations_heatmap(results_df: pd.DataFrame, save_path: str):
+    """绘制参数组合热力图"""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
+    # 创建c1-c2热力图
+    pivot_table = results_df.pivot_table(
+        values='mean_fitness', 
+        index='c1', 
+        columns='c2', 
+        aggfunc='mean'
+    )
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(pivot_table, annot=True, fmt='.4f', cmap='viridis_r', 
+                cbar_kws={'label': 'Mean Fitness'})
+    plt.title('PSO Parameter Combinations Performance\n(c1 vs c2, colored by mean fitness)')
+    plt.xlabel('Social Parameter (c2)')
+    plt.ylabel('Cognitive Parameter (c1)')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def run_comprehensive_comparison():
+    """综合比较不同参数策略"""
+    logger = ResultLogger("pso_strategy_comparison")
+    
+    try:
+        # 测试不同的参数策略
+        strategies = [
+            {'name': 'Balanced', 'w': 0.7, 'c1': 2.0, 'c2': 2.0},
+            {'name': 'High Exploration', 'w': 1.2, 'c1': 2.5, 'c2': 0.5},
+            {'name': 'High Exploitation', 'w': 0.4, 'c1': 0.5, 'c2': 2.5},
+            {'name': 'Cognitive Focus', 'w': 0.7, 'c1': 3.0, 'c2': 1.0},
+            {'name': 'Social Focus', 'w': 0.7, 'c1': 1.0, 'c2': 3.0},
+        ]
+        
+        comparison_results = {}
+        config = ExperimentConfig(n_particles=40, max_iter=500, n_runs=3)
+        
+        for strategy in strategies:
+            logger.log_message(f"测试策略: {strategy['name']}")
+            
+            params = {
+                'w': strategy['w'],
+                'c1': strategy['c1'],
+                'c2': strategy['c2'],
+                'n_particles': config.n_particles,
+                'max_iter': config.max_iter
+            }
+            
+            runner = ExperimentRunner(config)
+            strategy_results = []
+            
+            for run in range(config.n_runs):
+                result = runner.run_single_experiment(params, run_id=run, seed=run)
+                if result:
+                    strategy_results.append(result)
+            
+            if strategy_results:
+                fitnesses = [r['best_fitness'] for r in strategy_results]
+                comparison_results[strategy['name']] = {
+                    'mean_fitness': np.mean(fitnesses),
+                    'std_fitness': np.std(fitnesses),
+                    'success_rate': np.mean([f <= 1e-3 for f in fitnesses]),
+                    'convergence': np.mean([r['convergence_iteration'] for r in strategy_results])
+                }
+        
+        # 记录比较结果
+        logger.log_message("\n策略比较结果:")
+        for name, results in comparison_results.items():
+            logger.log_message(f"{name:15}: Mean={results['mean_fitness']:.6f}, "
+                             f"Success={results['success_rate']:.2%}, "
+                             f"Convergence={results['convergence']:.1f} iterations")
+        
+        return comparison_results
+        
+    finally:
+        logger.close()
 
 if __name__ == "__main__":
     ensure_directories()
     
-    # 运行单次实验
-    single_result = single_run_experiment()
+    print("开始大规模PSO参数调优实验...")
     
-    # 运行参数敏感性分析
-    sensitivity_results = parameter_sensitivity_analysis()
+    # 1. 大规模参数调优
+    best_params, tuning_results, validation_results = run_large_scale_parameter_tuning()
     
-    # 运行比较实验
-    comparison_results = comparison_experiment()
+    # 2. 策略比较（可选）
+    # comparison_results = run_comprehensive_comparison()
     
-    print("\n=== 实验完成 ===")
-    print("结果保存在以下目录:")
-    print("- results/convergence_plots/: 收敛曲线图")
-    print("- results/parameter_analysis/: 参数分析结果") 
-    print("- results/best_solutions/: 最优解记录")
+    print("\n=== 所有实验完成 ===")
+    print("请查看 results/ 目录下的详细报告和可视化图表")
