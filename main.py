@@ -30,30 +30,30 @@ def run_large_scale_parameter_tuning():
     try:
         logger.log_message("=== 大规模PSO参数调优实验开始 ===")
         
-        # 配置大规模实验
+        # 配置大规模实验 - 使用更好的参数
         config = ExperimentConfig(
             n_dims=20,
-            n_particles=40,
-            max_iter=800,
-            n_runs=3,  # 每个组合运行3次
+            n_particles=50,  # 增加粒子数
+            max_iter=1000,   # 增加迭代次数
+            n_runs=3,
             param_search_config={
                 'w': {
                     'type': 'linear',
-                    'values': [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3],
+                    'values': [0.4, 0.5, 0.6, 0.7, 0.8],  # 缩小范围，集中在常用值
                     'best_value': 0.7
                 },
                 'c1': {
                     'type': 'linear',
-                    'values': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+                    'values': [1.5, 2.0, 2.5],  # 缩小范围
                     'best_value': 2.0
                 },
                 'c2': {
                     'type': 'linear', 
-                    'values': [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+                    'values': [1.5, 2.0, 2.5],  # 缩小范围
                     'best_value': 2.0
                 },
-                'search_strategy': 'random',
-                'max_combinations': 100,  # 测试100种组合
+                'search_strategy': 'grid',  # 使用网格搜索确保覆盖
+                'max_combinations': 45,     # 3×3×5=45种组合
                 'performance_metric': 'mean_fitness'
             }
         )
@@ -94,10 +94,10 @@ def validate_best_parameters(best_params: dict, logger: ResultLogger):
     """验证最佳参数"""
     logger.log_message("开始验证最佳参数...")
     
-    # 使用最佳参数进行完整运行
+    # 使用最佳参数进行完整运行，使用改进的PSO
     config = ExperimentConfig(
-        n_particles=50,
-        max_iter=1000,
+        n_particles=100,    # 增加粒子数
+        max_iter=2000,      # 增加迭代次数
         n_runs=5
     )
     
@@ -109,18 +109,46 @@ def validate_best_parameters(best_params: dict, logger: ResultLogger):
         'max_iter': config.max_iter
     }
     
-    runner = ExperimentRunner(config)
+    # 使用改进的PSO
     validation_results = []
     
     for run in range(config.n_runs):
-        result = runner.run_single_experiment(params, run_id=run, seed=run)
-        if result:
-            validation_results.append(result)
+        try:
+            pso = ParticleSwarmOptimization(
+                objective_func=ackley_function,
+                n_dims=20,
+                n_particles=params['n_particles'],
+                max_iter=params['max_iter'],
+                bounds=(-32.768, 32.768),
+                w=params['w'],
+                c1=params['c1'],
+                c2=params['c2'],
+                seed=run,
+                use_adaptive_w=True,  # 启用自适应权重
+                use_clamping=True     # 启用速度钳制
+            )
+            
+            result = pso.optimize()
+            
+            validation_result = {
+                'run_id': run,
+                'parameters': params,
+                'best_fitness': result['best_fitness'],
+                'best_position': result['best_position'],
+                'success': result['best_fitness'] <= 1e-3,
+                'history': result['history'],
+                'convergence_iteration': len(result['history']['global_best_fitness']) - 1,
+                'seed': run
+            }
+            
+            validation_results.append(validation_result)
+            
+        except Exception as e:
+            print(f"验证运行 {run} 失败: {e}")
     
     logger.log_validation_results(validation_results)
     
     return validation_results
-
 def generate_comprehensive_visualizations(results_df: pd.DataFrame, best_params: Dict, 
                                         validation_results: List[Dict], logger: ResultLogger):
     """生成综合可视化图表"""
@@ -237,3 +265,4 @@ if __name__ == "__main__":
     
     print("\n=== 所有实验完成 ===")
     print("请查看 results/ 目录下的详细报告和可视化图表")
+    

@@ -216,3 +216,42 @@ Convergence Patterns:
     def __del__(self):
         """析构函数确保文件关闭"""
         self.close()
+    def save_detailed_results(self, results_df: pd.DataFrame, best_params: Dict, validation_results: List[Dict]):
+        """保存详细结果到文件"""
+        # 保存CSV结果
+        results_df.to_csv(f"{self.log_dir}/detailed_results.csv", index=False)
+        
+        # 转换 numpy 类型为 Python 原生类型
+        def convert_numpy_types(obj):
+            if isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, (np.float32, np.float64, np.float128)):
+                return float(obj)
+            elif isinstance(obj, (np.int32, np.int64)):
+                return int(obj)
+            else:
+                return obj
+        
+        best_params_serializable = convert_numpy_types(best_params)
+        
+        # 保存最佳参数
+        with open(f"{self.log_dir}/best_parameters.json", "w") as f:
+            json.dump(best_params_serializable, f, indent=2)
+        
+        # 保存验证结果
+        validation_data = {
+            'fitness_values': [float(r['best_fitness']) for r in validation_results],
+            'statistics': {
+                'mean': float(np.mean([r['best_fitness'] for r in validation_results])),
+                'std': float(np.std([r['best_fitness'] for r in validation_results])),
+                'min': float(np.min([r['best_fitness'] for r in validation_results])),
+                'max': float(np.max([r['best_fitness'] for r in validation_results]))
+            }
+        }
+        
+        with open(f"{self.log_dir}/validation_results.json", "w") as f:
+            json.dump(validation_data, f, indent=2)
